@@ -1,77 +1,86 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { BackgroundGradientAnimation } from "../background-gradient-animation";
 import { LampContainer } from "../Ace_Ui/LampDemo";
 
-// Replace with your actual API key
-const genAI = new GoogleGenerativeAI("AIzaSyBlyrCTuq5O4W7EDTmE-oHdfMLgliTnOd4");
-
-const SpeakAi = (text) => {
-  if (!text) return;
-  window.speechSynthesis.cancel(); // Stop any previous speech
-  const speakInput = new SpeechSynthesisUtterance(text);
-  speakInput.lang = "en-US";
-  speakInput.onend = () => console.log("Speech synthesis finished.");
-  window.speechSynthesis.speak(speakInput);
-};
-
-const StopInput = () => {
-  window.speechSynthesis.cancel();
-  console.log("Speech synthesis stopped.");
-};
+const API_KEY = "AIzaSyB5c85w5GX0lAuE-vVlCBznhqCrYiTmNpQ"; 
+const genAI = new GoogleGenerativeAI(API_KEY);
 
 const Voice = () => {
   const [transcript, setTranscript] = useState("");
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voices, setVoices] = useState([]);
 
-  const VoiceInput = () => {
-    if (!("webkitSpeechRecognition" in window)) {
-      console.log("Your browser does not support Speech Recognition");
-      return;
-    }
+  // Load voices once component mounts
+  useEffect(() => {
+    const synth = window.speechSynthesis;
+    const loadVoices = () => {
+      const availableVoices = synth.getVoices();
+      setVoices(availableVoices);
+    };
+    loadVoices();
+    if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
+  }, []);
 
-    let recognition = new window.webkitSpeechRecognition();
+  const speakAi = (text) => {
+    if (!text) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+
+    // Filter for high-quality English voices
+    const premiumVoice = voices.find(v => 
+      v.name.includes("Google US English") || 
+      v.name.includes("Samantha") || 
+      v.name.includes("Microsoft Aria")
+    );
+
+    if (premiumVoice) utterance.voice = premiumVoice;
+    
+    utterance.lang = "en-US";
+    utterance.rate = 1.05; // Slightly faster for a modern feel
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const startListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return alert("Please use Chrome browser.");
+
+    const recognition = new SpeechRecognition();
     recognition.lang = "en-US";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onstart = () => console.log("Voice recognition started...");
+    
+    recognition.onstart = () => {
+      setIsListening(true);
+      setRes(""); // Clear previous result for new interaction
+    };
+    
     recognition.onresult = (event) => {
-      let spokenText = event.results[0][0].transcript.toLowerCase();
-      console.log(`You said: ${spokenText}`);
+      const spokenText = event.results[0][0].transcript;
       setTranscript(spokenText);
-      getResponseForGivenPrompt(spokenText);
+      generateAIResponse(spokenText);
     };
 
-    recognition.onerror = (event) => console.error("Speech recognition error:", event.error);
-    recognition.onend = () => console.log("Voice recognition ended");
-
+    recognition.onend = () => setIsListening(false);
     recognition.start();
   };
 
-  const getResponseForGivenPrompt = async (prompt) => {
+  const generateAIResponse = async (prompt) => {
     try {
       setLoading(true);
-      console.log("Fetching AI response for:", prompt);
-
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
       const result = await model.generateContent(prompt);
+      const text = result.response.text();
 
-      console.log("API Raw Response:", result);
-
-      const responseText = result.response.text(); // Correct way to extract text response
-
-      if (!responseText) {
-        throw new Error("Empty response from API");
-      }
-
-      setRes(responseText);
-      console.log("AI Response Text:", responseText);
-      SpeakAi(responseText);
+      setRes(text);
+      speakAi(text);
     } catch (error) {
-      console.error("Something went wrong:", error);
-      SpeakAi("Sorry, I couldn't process your request.");
+      setRes("Error connecting to Nexa's core.");
     } finally {
       setLoading(false);
     }
@@ -80,44 +89,80 @@ const Voice = () => {
   return (
     <>
       <LampContainer />
-    
-    <div className="relative min-h-screen flex items-center justify-center -mt-[600px]   px-4 py-12">
-      
-  
-      <div className="w-full max-w-3xl bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl shadow-xl p-8 sm:p-10 text-center">
-        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white mb-4">
-          Nexa AI Assistant
-        </h1>
-        <p className="text-white/80 mb-6 text-base sm:text-lg">
-          Tap the button and speak a command. Nexa will respond instantly.
-        </p>
-  
-        <div className="flex flex-col sm:flex-row justify-center gap-4 sm:gap-6 mb-6">
-          <button
-            onClick={VoiceInput}
-            className="px-6 py-3 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold text-base shadow-lg hover:scale-105 transition-transform"
-          >
-            Start Listening
-          </button>
-          <button
-            onClick={StopInput}
-            className="px-6 py-3 rounded-full bg-gradient-to-r from-red-500 to-pink-600 text-white font-semibold text-base shadow-lg hover:scale-105 transition-transform"
-          >
-            Stop Listening
-          </button>
-        </div>
-  
-        <div className="text-gray-200 text-sm sm:text-base italic mb-2 min-h-[24px]">{transcript}</div>
-        {loading && <p className="text-blue-300 font-medium text-sm sm:text-base">Processing...</p>}
-  
-        <div className="mt-8 p-4 bg-white rounded-xl text-gray-800 shadow-md max-w-xl mx-auto w-full">
-          <p className="text-base sm:text-lg font-medium">{res}</p>
+      <div className="relative min-h-screen flex items-center justify-center -mt-[550px] px-4">
+        
+        <div className="w-full max-w-2xl bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] p-10 text-center transition-all duration-500 hover:border-cyan-500/30">
+          
+          {/* Status Indicator */}
+          <div className="flex justify-center gap-1 mb-6 h-8 items-end">
+            {(isListening || isSpeaking) ? (
+              [...Array(5)].map((_, i) => (
+                <div key={i} className={`w-1 bg-cyan-400 rounded-full animate-bounce`} 
+                     style={{ animationDelay: `${i * 0.1}s`, height: isSpeaking ? '100%' : '60%' }} />
+              ))
+            ) : (
+              <div className="w-2 h-2 rounded-full bg-white/20" />
+            )}
+          </div>
+
+          <h1 className="text-4xl font-bold text-white tracking-tight mb-2">Nexa</h1>
+          <p className="text-cyan-400/80 text-sm font-medium uppercase tracking-widest mb-8">
+            {isListening ? "Listening..." : isSpeaking ? "Speaking..." : "Ready to Assist"}
+          </p>
+
+          <div className="flex justify-center gap-4 mb-10">
+            <button
+              onClick={startListening}
+              className="group relative flex items-center justify-center w-16 h-16 rounded-full bg-cyan-500 hover:bg-cyan-400 transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)]"
+            >
+              <div className="absolute inset-0 rounded-full animate-ping bg-cyan-500/20 group-hover:hidden" />
+              <MicIcon />
+            </button>
+            
+            <button
+              onClick={() => window.speechSynthesis.cancel()}
+              className="flex items-center justify-center w-16 h-16 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all"
+            >
+              <StopIcon />
+            </button>
+          </div>
+
+          {/* Transcript Preview */}
+          <div className="mb-6 min-h-[40px]">
+            <p className="text-white/60 italic text-sm">
+              {transcript ? `"${transcript}"` : "Try saying 'Who is the Prime Minister of India?'"}
+            </p>
+          </div>
+
+          {/* AI Response Box */}
+          {res && (
+            <div className="mt-4 p-6 bg-black/40 border border-white/5 rounded-2xl text-left animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <p className="text-gray-200 leading-relaxed font-light">{res}</p>
+            </div>
+          )}
+          
+          {loading && (
+            <div className="flex items-center justify-center gap-3 text-cyan-400 animate-pulse">
+              <span className="text-sm">Accessing Neural Network...</span>
+            </div>
+          )}
         </div>
       </div>
-    </div>
     </>
   );
-  
 };
+
+// Simple Icons to avoid extra imports
+const MicIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+  </svg>
+);
+
+const StopIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="4" y="4" width="16" height="16" rx="2" ry="2"/>
+  </svg>
+);
 
 export default Voice;
